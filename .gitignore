@@ -143,10 +143,10 @@ GitHub.sublime-settings
 *.DS_Store
 
 # Django's generated static files
-docker_compose/services/static
+*/services/backend/static
 
 # DB's generated data
-docker_compose/services/db/data
+*/services/db/data
 
 # ES's genereted data
-etl/es/data
+*/services/es/data
