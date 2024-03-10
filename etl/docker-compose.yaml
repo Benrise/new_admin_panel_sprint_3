@@ -24,6 +24,13 @@ services:
       app:
         condition: service_healthy
 
+  es-transfer:
+    container_name: "es-transfer"
+    build: ./services/es_transfer
+    depends_on:
+      app:
+        condition: service_healthy
+
   app:
     container_name: "app"
     build: ./services/backend
@@ -68,7 +75,7 @@ services:
 
   elasticsearch:
     container_name: "elasticsearch"
-    image: elasticsearch:8.12.2
+    image: elasticsearch:8.12.1
     ports:
       - 9200:9200
     volumes:
@@ -81,7 +88,7 @@ services:
 
   kibana:
     container_name: "kibana"
-    image: kibana:8.12.2
+    image: kibana:8.12.1
     ports:
       - 5601:5601
     depends_on: [ "elasticsearch" ]
@@ -91,3 +98,12 @@ services:
       test: ["CMD", "curl", "-f", "http://localhost:5601"]
       retries: 300
       interval: 2s
+
+  redis:
+    container_name: "redis"
+    image: "redis:7.2.4"
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - "./services/redis/data:/data"
