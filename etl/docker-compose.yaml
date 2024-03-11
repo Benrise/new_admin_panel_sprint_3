@@ -27,6 +27,8 @@ services:
   es-transfer:
     container_name: "es-transfer"
     build: ./services/es_transfer
+    env_file:
+      - ./services/backend/.env
     depends_on:
       app:
         condition: service_healthy

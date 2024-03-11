@@ -148,5 +148,8 @@ GitHub.sublime-settings
 # DB's generated data
 */services/db/data
 
-# ES's genereted data
+# ES's generated data
 */services/es/data
+
+# Redis's generated data
+*/services/redis/data

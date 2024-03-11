@@ -1,13 +1,17 @@
+import datetime
 import logging
 
 from psycopg2 import DatabaseError
 from psycopg2.extensions import connection as _connection
 
+from utils.state_manager import State
+
 
 class Enricher:
-    def __init__(self, pg_conn: _connection, person_ids):
+    def __init__(self, pg_conn: _connection, person_ids, state: State):
         self.conn = pg_conn
         self.person_ids = person_ids
+        self.state = state
 
     def _execute_query(self, query,  params=None):
         records = []
@@ -35,6 +39,12 @@ class Enricher:
         ORDER BY fw.updated_at
         LIMIT 100;
         """
+        data = self.state.get_state('filmworks') or False
         params = {"person_ids": self.person_ids}
         records = self._execute_query(query, params)
+
+        if data:
+            records = data
+
+        self.state.set_state('filmworks', records)
         return tuple(records)

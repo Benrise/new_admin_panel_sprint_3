@@ -19,6 +19,6 @@ class Loader():
     def gen_data(self, data: list):
         actions = []
         for doc in data:
-            actions.append({"index": {"_index": "movies"}})
+            actions.append({"index": {"_index": "movies", "_id": doc['id']}})
             actions.append(doc)
         return actions
