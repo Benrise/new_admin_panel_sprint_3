@@ -33,7 +33,6 @@ class JsonFileStorage(BaseStorage):
 
 
 class RedisStorage(BaseStorage):
-    """Реализация хранилища, использующего Redis."""
 
     def __init__(self, redis: Redis):
         self._redis = redis
