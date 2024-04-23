@@ -1,4 +1,3 @@
-import json
 from time import sleep
 import psycopg2
 from psycopg2.extras import DictCursor
@@ -43,32 +42,30 @@ def extract_changed_movies(cursor, next_node: Generator) -> Generator[None, date
         while results := cursor.fetchmany(size=100):
             next_node.send(results)
 
-
 @coroutine
 def transform_movies(state: State, next_node: Generator) -> Generator[None, list[dict], None]:
     while movie_dicts := (yield):
         batch = []
         for movie_dict in movie_dicts:
             source_movie = Movie(**movie_dict)
-            directors = [TransformedPerson(person_id=person.person_id, person_name=person.person_name) for person in source_movie.persons if person.person_role == 'director']
-            actors = [TransformedPerson(person_id=person.person_id, person_name=person.person_name)  for person in source_movie.persons if person.person_role == 'actor']
-            writers = [TransformedPerson(person_id=person.person_id, person_name=person.person_name)  for person in source_movie.persons if person.person_role == 'writer']
+            directors = [TransformedPerson(id=person.person_id, full_name=person.person_name) for person in source_movie.persons if person.person_role == 'director']
+            actors = [TransformedPerson(id=person.person_id, full_name=person.person_name)  for person in source_movie.persons if person.person_role == 'actor']
+            writers = [TransformedPerson(id=person.person_id, full_name=person.person_name)  for person in source_movie.persons if person.person_role == 'writer']
             transformed_movie = TransformedMovie(
                 id=source_movie.id,
                 imdb_rating=source_movie.rating,
                 genres=source_movie.genres,
                 title=source_movie.title,
                 description=source_movie.description,
-                directors=[director.person_name for director in directors],
-                actors_names=[actor.person_name for actor in actors],
-                writers_names=[writer.person_name for writer in writers], 
+                directors=[director for director in directors],
+                actors_names=[actor.full_name for actor in actors],
+                writers_names=[writer.full_name for writer in writers], 
                 actors=[actor for actor in actors],
                 writers=[writer for writer in writers] 
-            ).dict(by_alias=True)
+            ) 
             state.set_state(STATE_KEY, str(movie_dict["updated_at"]))
             batch.append(transformed_movie)
         next_node.send(batch)
-
 
 @coroutine
 def load_movies(es_conn: Elasticsearch) -> Generator[None, list[TransformedMovie], None]:
@@ -78,14 +75,13 @@ def load_movies(es_conn: Elasticsearch) -> Generator[None, list[TransformedMovie
             action = {
                 "index": {
                     "_index": ES["index_name"],
-                    "_id": movie["id"]
+                    "_id": movie.id
                 }
             }
             actions.append(action)
-            actions.append(movie)
+            actions.append(movie.model_dump_json())
         try:
-            response = es_conn.bulk(body=actions) 
-            print(response)
+            es_conn.bulk(body=actions) 
         except Exception as e:
             print(f"Error on loading data: {e}")
 

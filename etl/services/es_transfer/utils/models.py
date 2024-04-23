@@ -21,8 +21,8 @@ class Movie(BaseModel):
     genres: List[str]
     
 class TransformedPerson(BaseModel):
-    person_id: str
-    person_name: str
+    id: str
+    full_name: str
     
 class TransformedMovie(BaseModel):
     id: str
@@ -30,7 +30,7 @@ class TransformedMovie(BaseModel):
     genres: List[str]
     title: str
     description: Optional[str]
-    directors: Optional[List[str]]
+    directors: Optional[List[TransformedPerson]]
     actors_names: Optional[List[str]]
     writers_names: Optional[List[str]]
     actors: Optional[List[TransformedPerson]]
