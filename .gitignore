@@ -153,3 +153,6 @@ GitHub.sublime-settings
 
 # Redis's generated data
 */services/redis/data
+
+# State's generated data
+etl/services/es_transfer/state
