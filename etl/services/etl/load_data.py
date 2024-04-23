@@ -7,7 +7,9 @@ from datetime import datetime
 from typing import Generator
 
 from elasticsearch import Elasticsearch
+import elasticsearch
 
+from utils.backoff import backoff
 from utils.context_manager import closing
 from utils.sql_queries import sql_extract_query
 from utils.coroutine import coroutine
@@ -15,12 +17,13 @@ from utils.logger import logger
 
 from state.json_file import JsonFileStorage
 from state.main import State
-from utils.models import Movie, TransformedMovie, Person, TransformedPerson
+from utils.models import Movie, TransformedMovie, TransformedPerson, filter_persons
 
 from config import (
     DSL,
     ES
 )
+
 
 """
 Source approach:
@@ -28,6 +31,19 @@ https://habr.com/ru/articles/710106/
 """
 
 STATE_KEY = 'last_movie_updated'
+
+@backoff()
+def connect_to_pg():
+    pg_conn = psycopg2.connect(**DSL, cursor_factory=DictCursor)
+    curs = pg_conn.cursor()
+    return pg_conn, curs
+
+@backoff()
+def connect_to_es():
+    es_conn = Elasticsearch(ES["hosts"])
+    if not es_conn.indices.exists(index=ES["index_name"]):
+        es_conn.indices.create(index=ES["index_name"], settings=ES["index_settings"], mappings=ES["index_mappings"])
+    return es_conn
 
 @coroutine
 def extract_changed_movies(cursor, next_node: Generator) -> Generator[None, datetime, None]:
@@ -38,9 +54,12 @@ def extract_changed_movies(cursor, next_node: Generator) -> Generator[None, date
             'updated_at': last_updated,
             'limit': 100
         }
-        cursor.execute(sql_extract_query, vars)
-        while results := cursor.fetchmany(size=100):
-            next_node.send(results)
+        try: 
+            cursor.execute(sql_extract_query, vars)
+            while results := cursor.fetchmany(size=100):
+                next_node.send(results)
+        except psycopg2.OperationalError:
+            connect_to_pg()
 
 @coroutine
 def transform_movies(state: State, next_node: Generator) -> Generator[None, list[dict], None]:
@@ -48,9 +67,9 @@ def transform_movies(state: State, next_node: Generator) -> Generator[None, list
         batch = []
         for movie_dict in movie_dicts:
             source_movie = Movie(**movie_dict)
-            directors = [TransformedPerson(id=person.person_id, full_name=person.person_name) for person in source_movie.persons if person.person_role == 'director']
-            actors = [TransformedPerson(id=person.person_id, full_name=person.person_name)  for person in source_movie.persons if person.person_role == 'actor']
-            writers = [TransformedPerson(id=person.person_id, full_name=person.person_name)  for person in source_movie.persons if person.person_role == 'writer']
+            directors = filter_persons(source_movie.persons, 'director')
+            actors = filter_persons(source_movie.persons, 'actors')
+            writers = filter_persons(source_movie.persons, 'writers')
             transformed_movie = TransformedMovie(
                 id=source_movie.id,
                 imdb_rating=source_movie.rating,
@@ -61,7 +80,7 @@ def transform_movies(state: State, next_node: Generator) -> Generator[None, list
                 actors_names=[actor.full_name for actor in actors],
                 writers_names=[writer.full_name for writer in writers], 
                 actors=[actor for actor in actors],
-                writers=[writer for writer in writers] 
+                writers=[writer for writer in writers]
             ) 
             state.set_state(STATE_KEY, str(movie_dict["updated_at"]))
             batch.append(transformed_movie)
@@ -80,26 +99,24 @@ def load_movies(es_conn: Elasticsearch) -> Generator[None, list[TransformedMovie
             }
             actions.append(action)
             actions.append(movie.model_dump_json())
+        
         try:
-            es_conn.bulk(body=actions) 
-        except Exception as e:
-            print(f"Error on loading data: {e}")
+            es_conn.bulk(body=actions)
+        except elasticsearch.exceptions.ConnectionError:
+            connect_to_es()
 
 if __name__ == "__main__":
-    es_conn = Elasticsearch(ES["hosts"])
-    if not es_conn.indices.exists(index=ES["index_name"]):
-            es_conn.indices.create(index=ES["index_name"], settings=ES["index_settings"], mappings=ES["index_mappings"])
+    es_conn = connect_to_es()
+    pg_conn, curs = connect_to_pg()
     state = State(JsonFileStorage('./state/movies_state.json'))
-    with closing(psycopg2.connect(**DSL, cursor_factory=DictCursor)) as pg_conn:
-        curs = pg_conn.cursor()
-        loader_coro = load_movies(es_conn)
-        transformer_coro = transform_movies(state, next_node=loader_coro)
-        extractor_coro = extract_changed_movies(curs, transformer_coro)
+    loader_coro = load_movies(es_conn)
+    transformer_coro = transform_movies(state, next_node=loader_coro)
+    extractor_coro = extract_changed_movies(curs, transformer_coro)
 
-        while True:
-            last_movies_updated = state.get_state(STATE_KEY)
-            logger.info('Starting ETL process for updates ...')
+    while True:
+        last_movies_updated = state.get_state(STATE_KEY)
+        logger.info('Starting ETL process for updates ...')
 
-            extractor_coro.send(state.get_state(STATE_KEY) or str(datetime.min))
+        extractor_coro.send(state.get_state(STATE_KEY) or str(datetime.min))
 
-            sleep(15)
+        sleep(15)

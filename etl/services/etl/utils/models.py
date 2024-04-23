@@ -36,3 +36,6 @@ class TransformedMovie(BaseModel):
     actors: Optional[List[TransformedPerson]]
     writers: Optional[List[TransformedPerson]]
 
+def filter_persons(persons: List[Person], role: str) -> List[TransformedPerson]:
+    return [TransformedPerson(id=person.person_id, full_name=person.person_name) for person in persons if person.person_role == role]
+ 

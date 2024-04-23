@@ -155,4 +155,4 @@ GitHub.sublime-settings
 */services/redis/data
 
 # State's generated data
-etl/services/es_transfer/state
+etl/services/etl/state/*.json
