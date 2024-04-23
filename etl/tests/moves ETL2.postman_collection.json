@@ -153,7 +153,7 @@
 		  "header": [],
 		  "body": {
 			"mode": "raw",
-			"raw": "{\n    \"query\": {\n        \"nested\": {\n            \"path\": \"actors\",\n            \"query\": {\n                \"bool\": {\n                    \"must\": [\n                        {\n                            \"match\": {\n                                \"actors.name\": \"Greg Camp\"\n                            }\n                        }\n                    ]\n                }\n            }\n        }\n    }\n}",
+			"raw": "{\n    \"query\": {\n        \"nested\": {\n            \"path\": \"actors\",\n            \"query\": {\n                \"bool\": {\n                    \"must\": [\n                        {\n                            \"match\": {\n                                \"actors.full_name\": \"Greg Camp\"\n                            }\n                        }\n                    ]\n                }\n            }\n        }\n    }\n}",
 			"options": {
 			  "raw": {
 				"language": "json"
@@ -227,7 +227,7 @@
 				"    var jsonData = pm.response.json();",
 				"    pm.expect(jsonData['hits']['total']['value']).to.equal(1);",
 				"    // Ожидается, что в поле directors_names возвращается список. В данном примере список должен быть пустым.",
-				"    pm.expect(jsonData['hits']['hits'][0]['_source']['directors_names']).to.length(0);",
+				"    pm.expect(jsonData['hits']['hits'][0]['_source']['directors']).to.length(0);",
 				"});"
 			  ],
 			  "type": "text/javascript"
