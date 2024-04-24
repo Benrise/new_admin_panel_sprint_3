@@ -17,7 +17,7 @@ from utils.logger import logger
 
 from state.json_file import JsonFileStorage
 from state.main import State
-from utils.models import Movie, TransformedMovie, TransformedPerson, filter_persons
+from utils.models import Movie, TransformedMovie, PersonRolesEnum, filter_persons
 
 from config import (
     DSL,
@@ -67,9 +67,9 @@ def transform_movies(state: State, next_node: Generator) -> Generator[None, list
         batch = []
         for movie_dict in movie_dicts:
             source_movie = Movie(**movie_dict)
-            directors = filter_persons(source_movie.persons, 'director')
-            actors = filter_persons(source_movie.persons, 'actors')
-            writers = filter_persons(source_movie.persons, 'writers')
+            directors = filter_persons(source_movie.persons, PersonRolesEnum.DIRECTOR)
+            actors = filter_persons(source_movie.persons, PersonRolesEnum.ACTOR)
+            writers = filter_persons(source_movie.persons, PersonRolesEnum.WRITER)
             transformed_movie = TransformedMovie(
                 id=source_movie.id,
                 imdb_rating=source_movie.rating,
@@ -119,4 +119,4 @@ if __name__ == "__main__":
 
         extractor_coro.send(state.get_state(STATE_KEY) or str(datetime.min))
 
-        sleep(15)
+        sleep(1)

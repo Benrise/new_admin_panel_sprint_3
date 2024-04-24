@@ -1,8 +1,14 @@
 from datetime import datetime
+from enum import Enum
 from typing import List, Optional
 import uuid
 from pydantic import BaseModel
 
+
+class PersonRolesEnum(Enum):
+    ACTOR = 'actor'
+    DIRECTOR = 'director'
+    WRITER = 'writer'
 
 class Person(BaseModel):
     person_id: str
@@ -36,6 +42,5 @@ class TransformedMovie(BaseModel):
     actors: Optional[List[TransformedPerson]]
     writers: Optional[List[TransformedPerson]]
 
-def filter_persons(persons: List[Person], role: str) -> List[TransformedPerson]:
-    return [TransformedPerson(id=person.person_id, full_name=person.person_name) for person in persons if person.person_role == role]
- 
+def filter_persons(persons: List[Person], role: PersonRolesEnum) -> List[TransformedPerson]:
+    return [TransformedPerson(id=person.person_id, full_name=person.person_name) for person in persons if person.person_role == role.value]
