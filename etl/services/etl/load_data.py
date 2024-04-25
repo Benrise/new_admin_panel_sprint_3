@@ -42,9 +42,10 @@ ETL_SLEEP_TIME = int(ETL["sleep_time"])
 
 @backoff(BACKOFF_START_SLEEP_TIME, BACKOFF_FACTOR, BACKOFF_BORDER_SLEEP_TIME)
 def connect_to_pg():
-    pg_conn = psycopg2.connect(**DSL, cursor_factory=DictCursor)
-    curs = pg_conn.cursor()
-    return pg_conn, curs
+    with closing(psycopg2.connect(**DSL, cursor_factory=DictCursor)) as pg_conn:
+        pg_conn = psycopg2.connect(**DSL, cursor_factory=DictCursor)
+        curs = pg_conn.cursor()
+        return curs
 
 @backoff(BACKOFF_START_SLEEP_TIME, BACKOFF_FACTOR, BACKOFF_BORDER_SLEEP_TIME)
 def connect_to_es():
@@ -67,7 +68,7 @@ def extract_changed_movies(cursor, next_node: Generator) -> Generator[None, date
             while results := cursor.fetchmany(size=100):
                 next_node.send(results)
         except psycopg2.OperationalError:
-            connect_to_pg()
+            cursor = connect_to_pg()
 
 @coroutine
 def transform_movies(state: State, next_node: Generator) -> Generator[None, list[dict], None]:
@@ -111,11 +112,11 @@ def load_movies(es_conn: Elasticsearch) -> Generator[None, list[TransformedMovie
         try:
             es_conn.bulk(body=actions)
         except elasticsearch.exceptions.ConnectionError:
-            connect_to_es()
+            es_conn = connect_to_es()
 
 if __name__ == "__main__":
     es_conn = connect_to_es()
-    pg_conn, curs = connect_to_pg()
+    curs = connect_to_pg()
     state = State(JsonFileStorage('./state/movies_state.json'))
     loader_coro = load_movies(es_conn)
     transformer_coro = transform_movies(state, next_node=loader_coro)
