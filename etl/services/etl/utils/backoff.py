@@ -15,9 +15,8 @@ def backoff(start_sleep_time=1, factor=2, border_sleep_time=10):
                 try:
                     return func(*args, **kwargs)
                 except Exception:
-                    error_msg = f'Backoff exception in function: {func.__name__}\n Next try in {int(min(t, border_sleep_time))} seconds'
+                    error_msg = f'Backoff exception in function: {func.__name__}\n Next try in {int(min(t, border_sleep_time))} seconds\n'
                     logger.error(error_msg)
-                    print('')
                     if (t < border_sleep_time):
                         t = start_sleep_time * (factor ** n)
                     n += 1

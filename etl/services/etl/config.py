@@ -6,6 +6,16 @@ from utils.es_schema import index_settings, index_mappings
 
 load_dotenv()
 
+BACKOFF = {
+    "start_sleep_time": os.environ.get("BACKOFF_START_SLEEP_TIME", 1),
+    "factor": os.environ.get("BACKOFF_FACTOR", 2),
+    "border_sleep_time": os.environ.get("BACKOFF_BORDER_SLEEP_TIME", 10),
+}
+
+ETL = {
+    "sleep_time": os.environ.get("ETL_SLEEP_TIME", 1)
+}
+
 DSL = {
     "dbname": os.environ.get("DB_NAME"),
     "user": os.environ.get("DB_USER"),

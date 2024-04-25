@@ -21,8 +21,12 @@ from utils.models import Movie, TransformedMovie, PersonRolesEnum, filter_person
 
 from config import (
     DSL,
-    ES
+    ES,
+    ETL,
+    BACKOFF
 )
+
+STATE_KEY = 'last_movie_updated'
 
 
 """
@@ -30,15 +34,19 @@ Source approach:
 https://habr.com/ru/articles/710106/
 """
 
-STATE_KEY = 'last_movie_updated'
+BACKOFF_START_SLEEP_TIME = int(BACKOFF["start_sleep_time"])
+BACKOFF_FACTOR = int(BACKOFF["factor"])
+BACKOFF_BORDER_SLEEP_TIME = int(BACKOFF["border_sleep_time"])
 
-@backoff()
+ETL_SLEEP_TIME = int(ETL["sleep_time"])
+
+@backoff(BACKOFF_START_SLEEP_TIME, BACKOFF_FACTOR, BACKOFF_BORDER_SLEEP_TIME)
 def connect_to_pg():
     pg_conn = psycopg2.connect(**DSL, cursor_factory=DictCursor)
     curs = pg_conn.cursor()
     return pg_conn, curs
 
-@backoff()
+@backoff(BACKOFF_START_SLEEP_TIME, BACKOFF_FACTOR, BACKOFF_BORDER_SLEEP_TIME)
 def connect_to_es():
     es_conn = Elasticsearch(ES["hosts"])
     if not es_conn.indices.exists(index=ES["index_name"]):
@@ -119,4 +127,4 @@ if __name__ == "__main__":
 
         extractor_coro.send(state.get_state(STATE_KEY) or str(datetime.min))
 
-        sleep(1)
+        sleep(ETL_SLEEP_TIME)
