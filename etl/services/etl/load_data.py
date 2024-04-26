@@ -1,23 +1,33 @@
 from time import sleep
-import psycopg2
-from psycopg2.extras import DictCursor
-
 from datetime import datetime
 
-from typing import Generator
+import psycopg2
+from psycopg2.extras import DictCursor
+from psycopg2.extensions import AsIs
+
+from typing import Generator, Set
 
 from elasticsearch import Elasticsearch
 import elasticsearch
 
 from utils.backoff import backoff
 from utils.context_manager import closing
-from utils.sql_queries import sql_extract_query
+from utils.sql_queries import (
+    sql_extract_last_updated_table_query, 
+    sql_extract_updated_film_work_records_query, 
+    schema
+)
 from utils.coroutine import coroutine
 from utils.logger import logger
+from utils.models import (
+    Movie, 
+    TransformedMovie, 
+    PersonRolesEnum, 
+    filter_persons
+)
 
 from state.json_file import JsonFileStorage
 from state.main import State
-from utils.models import Movie, TransformedMovie, PersonRolesEnum, filter_persons
 
 from config import (
     DSL,
@@ -26,7 +36,7 @@ from config import (
     BACKOFF
 )
 
-STATE_KEY = 'last_movie_updated'
+STATE_UPDATED_KEY = 'last_updated_record'
 
 
 """
@@ -55,25 +65,70 @@ def connect_to_es():
     return es_conn
 
 @coroutine
-def extract_changed_movies(cursor, next_node: Generator) -> Generator[None, datetime, None]:
-    while last_updated := (yield):
-        logger.info(f'Fetching movies changed after %s', last_updated)
-        logger.info('Fetching movies updated after %s', last_updated)
-        vars = {
-            'updated_at': last_updated,
-            'limit': 100
-        }
-        try: 
-            cursor.execute(sql_extract_query, vars)
+def extract_changed_movies(state: State, cursor, next_node: Generator) -> Generator[None, any, None]:
+    while True:
+        table_name, last_updated_at = (yield)
+        pkeys = []
+        
+        logger.info(f'[{table_name}] Fetching data changed after: {last_updated_at}')
+        logger.info(f'[{table_name}] Fetching data updated after: {last_updated_at}\n')
+        
+        try:
+            last_updated_vars = {
+                'table': AsIs(schema + '.' + table_name),
+                'updated_at': last_updated_at,
+                'limit': 100
+            }
+
+            cursor.execute(sql_extract_last_updated_table_query, last_updated_vars)
             while results := cursor.fetchmany(size=100):
-                next_node.send(results)
+                last_updated_at = results[-1]['updated_at']
+                state.set_state(table_name, str(last_updated_at))
+                pkeys.extend([record[0] for record in results]) 
+                
+            sql_extract_from_last_updated_table_vars = {
+                'table': AsIs(schema + '.' + table_name),
+                'pkeys': tuple(pkeys),
+                'last_id': state.get_state(STATE_UPDATED_KEY) or '',
+                'limit': 100
+            }
+            
+            if pkeys:
+                cursor.execute(sql_extract_updated_film_work_records_query, sql_extract_from_last_updated_table_vars)
+                while results := cursor.fetchmany(size=100):
+                    set_batch_state(
+                        state,
+                        table=table_name,
+                        pkeys=pkeys,
+                        last_updated_id=results[-1]['id']
+                    )
+                    logger.info(f'[{table_name}] Got additional records for {len(results)} movies')
+                    next_node.send(results)
+                set_batch_state(
+                    state,
+                    table=None,
+                    pkeys=None,
+                    last_updated_id=None
+                )
+            else:
+                logger.info(f"[{table_name}] No pkeys found for table. Skipping SQL query\n")
+                
         except psycopg2.OperationalError:
             cursor = connect_to_pg()
+            
+def set_batch_state(state: State, **kwargs) -> None:
+        for key, value in kwargs.items():
+            state.set_state(key=key, value=str(value))
+
+def get_last_updated_at(state, table_name) -> str:
+    last_updated_at = state.get_state(table_name)
+    return last_updated_at or datetime.min
 
 @coroutine
 def transform_movies(state: State, next_node: Generator) -> Generator[None, list[dict], None]:
     while movie_dicts := (yield):
         batch = []
+        set_batch_state(state, data=movie_dicts)
         for movie_dict in movie_dicts:
             source_movie = Movie(**movie_dict)
             directors = filter_persons(source_movie.persons, PersonRolesEnum.DIRECTOR)
@@ -90,9 +145,10 @@ def transform_movies(state: State, next_node: Generator) -> Generator[None, list
                 writers_names=[writer.full_name for writer in writers], 
                 actors=[actor for actor in actors],
                 writers=[writer for writer in writers]
-            ) 
-            state.set_state(STATE_KEY, str(movie_dict["updated_at"]))
+            )
+
             batch.append(transformed_movie)
+        set_batch_state(state, data=None)
         next_node.send(batch)
 
 @coroutine
@@ -120,12 +176,11 @@ if __name__ == "__main__":
     state = State(JsonFileStorage('./state/movies_state.json'))
     loader_coro = load_movies(es_conn)
     transformer_coro = transform_movies(state, next_node=loader_coro)
-    extractor_coro = extract_changed_movies(curs, transformer_coro)
-
+    extractor_coro = extract_changed_movies(state, curs, transformer_coro)
+    logger.info('Starting ETL process for updates ...')
     while True:
-        last_movies_updated = state.get_state(STATE_KEY)
-        logger.info('Starting ETL process for updates ...')
+        for table_name in ETL["extract_tables"]:
+            logger.info(f'[{table_name}] Checking updated records ...')
+            extractor_coro.send((table_name, get_last_updated_at(state, table_name)))
 
-        extractor_coro.send(state.get_state(STATE_KEY) or str(datetime.min))
-
-        sleep(ETL_SLEEP_TIME)
+            sleep(ETL_SLEEP_TIME)

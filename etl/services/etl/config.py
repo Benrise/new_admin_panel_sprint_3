@@ -1,3 +1,4 @@
+from datetime import datetime
 import os
 
 from dotenv import load_dotenv
@@ -13,7 +14,12 @@ BACKOFF = {
 }
 
 ETL = {
-    "sleep_time": os.environ.get("ETL_SLEEP_TIME", 1)
+    "sleep_time": os.environ.get("ETL_SLEEP_TIME", 1),
+    "extract_tables": ('film_work', 'person', 'genre'),
+    "default_state": {
+        "id": "",
+        "updated_at": datetime.min
+    }
 }
 
 DSL = {
