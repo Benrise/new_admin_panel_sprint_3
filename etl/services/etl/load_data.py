@@ -65,7 +65,7 @@ def connect_to_es():
     return es_conn
 
 @coroutine
-def extract_changed_movies(state: State, cursor, next_node: Generator) -> Generator[None, any, None]:
+def extract_changed_movies(state: State, cursor, next_node: Generator) -> Generator[None, tuple[str, list], None]:
     while True:
         table_name, last_updated_at = (yield)
         pkeys = []
@@ -86,33 +86,41 @@ def extract_changed_movies(state: State, cursor, next_node: Generator) -> Genera
                 state.set_state(table_name, str(last_updated_at))
                 pkeys.extend([record[0] for record in results]) 
                 
+            if pkeys:
+                next_node.send((table_name, pkeys, cursor))
+            else:
+                logger.info(f"No pkeys found for table {table_name}. Skipping SQL query.\n")
+                
+        except psycopg2.OperationalError:
+            cursor = connect_to_pg()
+
+@coroutine
+def enrich_changed_movies(state: State, next_node: Generator) -> Generator[None, any, None]:
+    while True:
+        table_name, pkeys, cursor = (yield)
+        try:
             sql_extract_from_last_updated_table_vars = {
                 'table': AsIs(schema + '.' + table_name),
                 'pkeys': tuple(pkeys),
                 'last_id': state.get_state(STATE_UPDATED_KEY) or '',
                 'limit': 100
             }
-            
-            if pkeys:
-                cursor.execute(sql_extract_updated_film_work_records_query, sql_extract_from_last_updated_table_vars)
-                while results := cursor.fetchmany(size=100):
-                    set_batch_state(
-                        state,
-                        table=table_name,
-                        pkeys=pkeys,
-                        last_updated_id=results[-1]['id']
-                    )
-                    logger.info(f'[{table_name}] Got additional records for {len(results)} movies')
-                    next_node.send(results)
+
+            cursor.execute(sql_extract_updated_film_work_records_query, sql_extract_from_last_updated_table_vars)
+            while results := cursor.fetchmany(size=100):
                 set_batch_state(
                     state,
-                    table=None,
-                    pkeys=None,
-                    last_updated_id=None
+                    table=table_name,
+                    pkeys=pkeys,
+                    last_updated_id=results[-1]['id']
                 )
-            else:
-                logger.info(f"[{table_name}] No pkeys found for table. Skipping SQL query\n")
-                
+                next_node.send(results)
+            set_batch_state(
+                state,
+                table=None,
+                pkeys=None,
+                last_updated_id=None
+            )
         except psycopg2.OperationalError:
             cursor = connect_to_pg()
             
@@ -172,11 +180,12 @@ def load_movies(es_conn: Elasticsearch) -> Generator[None, list[TransformedMovie
 
 if __name__ == "__main__":
     es_conn = connect_to_es()
-    curs = connect_to_pg()
+    pg_curs = connect_to_pg()
     state = State(JsonFileStorage('./state/movies_state.json'))
     loader_coro = load_movies(es_conn)
     transformer_coro = transform_movies(state, next_node=loader_coro)
-    extractor_coro = extract_changed_movies(state, curs, transformer_coro)
+    enricher_coro = enrich_changed_movies(state, next_node=transformer_coro)
+    extractor_coro = extract_changed_movies(state, pg_curs, next_node=enricher_coro)
     logger.info('Starting ETL process for updates ...')
     while True:
         for table_name in ETL["extract_tables"]:
